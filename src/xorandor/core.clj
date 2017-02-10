@@ -1,97 +1,124 @@
 (ns xorandor.core
-  (:require [clojure.string :as str]
-            [clojure.java.io :as io]))
-
-(defn pad-str [width s]
-  (let [fmt (str "%1$-" width "s")]
-    (format fmt s)))
+  (:require [clojure.java.io :as io]
+            [clojure.pprint :as pp]
+            [clojure.string :as str]))
 
 (defn case-input [n]
   (-> (io/resource (str "case0" n ".txt"))
       (slurp)))
 
-(defn input->grid [input]
-  (let [lines (str/split-lines input)
-        width (read-string (second (str/split (first lines) #" ")))]
-    (->> (map (partial pad-str width) (rest lines))
-         (mapv vec))))
-
-(defn input->grid [input]
-  (let [lines (str/split-lines input)
-        width (read-string (second (str/split (first lines) #" ")))]
-    (->> (map (partial pad-str width) (rest lines))
-         (apply str))))
-
-(defn parse-gates-and-inputs-from-line [line row]
-  (let [re #"\[.*?\]|[01]"
-        matcher (re-matcher re line)]
+(defn parse-components [diagram-grid]
+  (let [s       (str/join (map (partial apply str) diagram-grid))
+        re      #"\[.*?\]|[01]"
+        matcher (re-matcher re s)]
     (loop [matches []
-           found (.find matcher)]
+           found   (.find matcher)]
       (if (not found)
         matches
-        (recur (conj matches {:start (.start matcher) :gate (.group matcher) :row row})
+        (recur (conj matches {:start (.start matcher) :text (.group matcher)})
                (.find matcher))))))
 
-(defn parse-gate-symbol [gate]
-  (if (str/index-of gate "[")
-    (str/trim (last (flatten (re-seq #"\[(.*?)\]" gate))))
-    gate))
+(defn widen [width s]
+  (let [fmt (str "%1$-" width "s")]
+    (format fmt s)))
 
-(defn coord-range [row col len]
-  (set (map #(vector row %) (range col (+ col len)))))
+(defn assoc-ids [components]
+  (map (fn [component id]
+         (assoc component :id id))
+       components
+       (rest (range))))
 
-(defn raw-gate-info [grid]
-  (->> (map #(hash-map :line (apply str %1) :row %2) grid (range))
-       (mapcat #(parse-gates-and-inputs-from-line (:line %) (:row %)))
-       (map #(assoc % :gate-symbol (parse-gate-symbol (:gate %))))
-       (map #(assoc %2 :id %1) (rest (range)))
-       (map #(assoc % :coords (coord-range (:row %) (:start %) (count (:gate %)))))))
+(defn assoc-coords [components cols]
+  (let [idx->coord (fn [idx]
+                     (let [col (mod idx cols)
+                           row (/ (- idx col) cols)]
+                       [row col]))]
+    (map (fn [{start :start text :text :as component}]
+           (let [indices (range start (+ start (count text)))]
+             (assoc component :coords (map idx->coord indices))))
+         components)))
 
-(defn identify-gates [gate-symbols prefix raw-gate-info]
-  (let [pred (fn [{:keys [gate-symbol]}]
-               ((set gate-symbols) gate-symbol))
-        identified (map #(assoc %1 :name (keyword (str prefix %2)))
-                        (filter pred raw-gate-info) (rest (range)))
-        others (remove pred raw-gate-info)]
-    (sort-by :id (concat identified others))))
+(defn assoc-types [components]
+  (map (fn [{text :text :as component}]
+         (let [type (str (first (remove #{\space \[ \]} text)))]
+           (assoc component :type type)))
+       components))
 
-(defn identify-inputs [raw-gate-info]
-  (identify-gates ["0" "1"] "i" raw-gate-info))
+(defn assoc-names [components]
+  (let [type (fn [{type :type}]
+               (cond (#{"0" "1"} type) "i"
+                     (#{"<" ">"} type) "s"
+                     :else "g"))]
+    (->> (group-by type components)
+         (mapcat (fn [[type components]]
+                   (map (fn [component n]
+                          (assoc component :name (keyword (str type n))))
+                        components
+                        (rest (range))))))))
 
-(defn identify-switches [raw-gate-info]
-  (identify-gates ["<" ">"] "k" raw-gate-info))
+(defn assoc-pins [components direction prop diagram-grid]
+  (map (fn [{coords :coords :as component}]
+         (let [pin-coords (->> (map #(mapv + % direction) coords)
+                               (filter #(= (get-in diagram-grid %) \|)))]
+           (if (seq pin-coords)
+             (assoc component prop pin-coords)
+             component)))
+       components))
 
-(defn remove-useless-keys [raw-gate-info]
-  (map #(dissoc % :start :gate :row) raw-gate-info))
+(defn find-input-dep [input outputs wires]
+  (let [outputs   (set outputs)
+        neighbors (fn [coord]
+                    (->> (map #(mapv + coord %) [[1 0] [0 -1] [0 1]])
+                         (filter (set wires))))]
+    (loop [frontier (list input)
+           visited  #{input}]
+      (let [[coord & frontier] frontier]
+        (cond (nil? coord) nil
+              (outputs coord) coord
+              :else (recur (into frontier (->> (neighbors coord)
+                                               (remove visited)))
+                           (into visited [coord])))))))
 
-(defn init-gates [grid]
-  (->> grid
-       raw-gate-info
-       identify-switches
-       identify-inputs
-       remove-useless-keys))
+(defn input-output-deps [inputs outputs wires]
+  (into {} (map #(vector % (find-input-dep % outputs wires)) inputs)))
 
-#_(defn grid-and-gates-first-pass [n]
-  (let [grid (input->grid (case-input n))
-        gates (init-gates grid)
-        gate-coords (reduce (fn [m gate]
-                              (into m (map #(vector % (:id gate)) (:coords gate))))
-                            {}
-                            gates)
-        path-coords ]
-    {:grid grid :gates-first-pass gates :gate-coords gate-coords}))
+(defn wires [components diagram-grid]
+  (let [coords      (for [row (range (count diagram-grid))
+                          col (range (count (first diagram-grid)))]
+                      [row col])
+        gate-coords (mapcat :coords components)]
+    (->> (remove (set gate-coords) coords)
+         (filter (fn [coord]
+                   (#{\| \- \+} (get-in diagram-grid coord)))))))
 
-(defn find-neighbors [grid gates coord]
-  (let [down-left-right [[1 0] [0 -1] [0 1]]
-        neighbor-coords (map #(mapv + coord %) down-left-right)
-        gate-coords (reduce clojure.set/union #{} (map :coords (vals gates)))]
-    (filter (fn [coord]
-              (let [c (get-in grid coord)]
-                (when (or (and c (not= c \space)) (gate-coords coord))
-                  coord)))
-            neighbor-coords)))
+(defn go [cols raw-diagram]
+  (let [diagram-grid      (mapv #(vec (widen cols %)) (str/split-lines raw-diagram))
+        components        (-> (parse-components diagram-grid)
+                              (assoc-ids)
+                              (assoc-coords cols)
+                              (assoc-types)
+                              (assoc-names)
+                              (assoc-pins [1 0] :inputs diagram-grid)
+                              (assoc-pins [-1 0] :outputs diagram-grid))
+        input-output-deps (input-output-deps (mapcat :inputs components)
+                                             (mapcat :outputs components)
+                                             (wires components diagram-grid))]
+    input-output-deps))
 
-(defn find-input-pins [grid {coords :coords}]
-  (let [down [1 0]]
-    (->> (map #(mapv + % down) coords)
-         (filter #(= (get-in grid %) \|)))))
+(defn my-main [n]
+  (let [input       (case-input n)
+        cols        (read-string (second (str/split input #" ")))
+        raw-diagram (str/join "\n" (rest (str/split-lines input)))]
+    (go cols raw-diagram)))
+
+(defn -main [& _]
+  (let [_    (read)
+        cols (read)
+        _    (read-line)]
+    (go cols (slurp *in*))))
+
+
+
+;; how-how-are-you
+;[{:id 1 :name :i1 :symbol "&" :positions #{[0 0] [0 1]} :inputs [[0 0] [0 1] :outputs [[1 0]]]}
+; {{:id 1 :name :i1 :symbol "&" :positions #{[0 0] [0 1]} :inputs [[0 0] [0 1] :outputs [[1 0]]]}}]
