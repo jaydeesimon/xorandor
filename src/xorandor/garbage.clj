@@ -139,8 +139,8 @@
             valid-edges)))
 
 (defn to-tree [adj-map node]
-  (if-let [succ (get adj-map node)]
-    (cons node (lazy-seq (map #(to-tree adj-map %) succ)))
+  (if-let [children (get adj-map node)]
+    (cons node (lazy-seq (map #(to-tree adj-map %) children)))
     (list node)))
 
 (defn left-switch [toggle]
@@ -160,7 +160,7 @@
       [false false])))
 
 (defn led [& currents]
-  (if (every? true? currents) true false))
+  (if (every? true? currents) [true] [false]))
 
 (defn and' [current1 current2]
   (and current1 current2))
