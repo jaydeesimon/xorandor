@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
             [clojure.string :as str]
+            [clojure.set :refer [intersection]]
             [taoensso.timbre :as timbre]))
 
 (timbre/refer-timbre)
@@ -99,10 +100,28 @@
          (filter (fn [coord]
                    (#{\| \- \+} (get-in diagram-grid coord)))))))
 
-(defn component-children [components deps component]
+(defn find-toggle-deps [components deps component]
+  (let [inputs   (set (keys deps))
+        branch?  (fn [component]
+                   (seq (intersection inputs (set (:inputs component)))))
+        children (fn [component]
+                   (let [output-deps (set (map deps (:inputs component)))]
+                     (filter (fn [component]
+                               (seq (intersection output-deps (set (:outputs component)))))
+                             components)))]
+    (->> (filter :toggle? (tree-seq branch? children component))
+         (map :name))))
+
+(defn component-children [components deps component component-output-map]
   (let [output-deps (map deps (:inputs component))]
     (map (fn [output]
-           (some (fn [component]
+           (let [component (get component-output-map output)]
+             (let [output-position (->> (map vector [first second] (:outputs component))
+                                        (filter (fn [[_ coord]]
+                                                  (= output coord)))
+                                        (ffirst))]
+               [output-position component]))
+           #_(some (fn [component]
                    (when ((set (:outputs component)) output)
                      (let [output-position (->> (map vector [first second] (:outputs component))
                                                 (filter (fn [[_ coord]]
@@ -177,10 +196,23 @@
     "~" (fn [x] [(not x)])
     (throw (ex-info (format "unknown gate: %s" (:type component)) {}))))
 
-(defn eval-circuit [components deps position-fn component toggles cache]
+#_{:g3 [{:i1 true :i2 false} {:i3 false :i1 true}]}
+
+#_(defn add-short-circuit-val! [short-circuits toggles component]
+  (swap! short-circuits (fn [short-circuits]
+                          (merge-with (fn [k1 k2]
+                                        (if (coll? k1)
+                                          (conj k1 k2)
+                                          [k1 k2]))
+                                      short-circuits
+                                      (into {} (filter (fn [[k v]]
+                                                         ((set (:input-deps component)) k))
+                                                       toggles))))))
+
+(defn eval-circuit [components deps position-fn component toggles cache component-output-map]
   (let [toggle (-> component :name toggles)
         f      (component-as-fn component toggle)]
-    (if-let [child-components (seq (component-children-memo components deps component))]
+    (if-let [child-components (seq (component-children-memo components deps component component-output-map))]
       (if-let [cached-val (get @cache (:name component))]
         (position-fn cached-val)
         (let [f-result (apply f (map (fn [[position-fn component']]
@@ -189,18 +221,27 @@
                                                      position-fn
                                                      component'
                                                      toggles
-                                                     cache))
+                                                     cache
+                                                     component-output-map))
                                      child-components))
-              _        (swap! cache assoc (:name component) f-result)]
+              _        (swap! cache assoc (:name component) f-result)
+              #__        #_(when (:short-circuitable? component)
+                         (add-short-circuit-val! short-circuits toggles component))]
           (position-fn f-result)))
       (position-fn (f)))))
 
 (defn minimum-toggles* [components deps]
-  (let [toggle-names (map :name (filter :toggle? components))]
+  (let [toggle-names (map :name (filter :toggle? components))
+        component-output-map (reduce (fn [m component]
+                                       (into m (map (fn [output]
+                                                      (vector output component))
+                                                    (:outputs component))))
+                                     {}
+                                     components)]
     (->> (toggle-permutations (count toggle-names))
          (map (partial zipmap toggle-names))
          (filter (fn [toggles]
-                (let [evaled (eval-circuit components deps first (first components) toggles (atom {}))]
+                (let [evaled (eval-circuit components deps first (first components) toggles (atom {}) component-output-map)]
                   (when evaled
                     toggles))))
          (sort-by (fn [toggles]
@@ -228,7 +269,8 @@
         deps (input-output-deps (mapcat :inputs components)
                                              (mapcat :outputs components)
                                              (wires components diagram-grid))]
-    (minimum-toggles* components deps)))
+    {:components components :deps deps}
+    #_(minimum-toggles* components deps)))
 
 (defn my-main [n]
   (let [input       (case-input n)
