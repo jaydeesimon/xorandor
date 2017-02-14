@@ -141,6 +141,68 @@
   (let [unused [:start :input-coords :output-coords :text :coords :toggle?]]
     (map #(apply dissoc (concat [%] unused)) components)))
 
+(defmulti component-fn :type)
+
+(defmethod component-fn "@" [_]
+  (fn [& currents]
+    (if (every? true? currents) [true] [false])))
+
+(defmethod component-fn "~" [_]
+  (fn [current] [(not current)]))
+
+(defmethod component-fn "&" [_]
+  (fn [current1 current2]
+    [(and current1 current2)]))
+
+(defmethod component-fn "|" [_]
+  (fn [current1 current2]
+    [(or current1 current2)]))
+
+(defmethod component-fn "+" [_]
+  (fn [current1 current2]
+    (if (not= current1 current2) [true] [false])))
+
+(defmethod component-fn "^" [_]
+  (fn [current1 current2]
+    (if (and current1 current2) [false] [true])))
+
+(defmethod component-fn "-" [_]
+  (fn [current1 current2]
+    (if (or current1 current2) [false] [true])))
+
+(defmethod component-fn "=" [_]
+  (fn [current1 current2]
+    (if (= current1 current2) [true] [false])))
+
+(defmethod component-fn "<" [_]
+  (fn [toggle]
+    (fn [current]
+      (if current
+        (if toggle
+          [false true]
+          [true false])
+        [false false]))))
+
+(defmethod component-fn ">" [_]
+  (fn [toggle]
+    (fn [current]
+      (if current
+        (if toggle
+          [true false]
+          [false true])
+        [false false]))))
+
+(defn- input-fn [default]
+  (fn [toggle]
+    (if toggle
+      [(not default)] [default])))
+
+(defmethod component-fn "0" [_]
+  (input-fn false))
+
+(defmethod component-fn "1" [_]
+  (input-fn true))
+
 (defn parse-circuit [s]
   (let [grid (parse-into-grid s)]
     (-> (initialize-components grid)
