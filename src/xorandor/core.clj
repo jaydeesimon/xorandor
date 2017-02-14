@@ -192,16 +192,17 @@
           [false true])
         [false false]))))
 
-(defn- input-fn [default]
-  (fn [toggle]
-    (if toggle
-      [(not default)] [default])))
+(defn- input-fn [default toggle]
+  (let [output (if toggle (not default) default)]
+    (constantly [output])))
 
 (defmethod component-fn "0" [_]
-  (input-fn false))
+  (fn [toggle]
+    (input-fn false toggle)))
 
 (defmethod component-fn "1" [_]
-  (input-fn true))
+  (fn [toggle]
+    (input-fn true toggle)))
 
 (defn parse-circuit [s]
   (let [grid (parse-into-grid s)]
