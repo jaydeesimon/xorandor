@@ -3,14 +3,14 @@
             [clojure.string :as str]
             [clojure.set :refer [intersection]]))
 
-(defn parse-dimensions [s]
+(defn- parse-dimensions [s]
   (mapv read-string (take 2 (re-seq #"\S+" s))))
 
-(defn widen [width s]
+(defn- widen [width s]
   (let [fmt (str "%1$-" width "s")]
     (format fmt s)))
 
-(defn parse-into-grid [s]
+(defn- parse-into-grid [s]
   (let [[_ width] (parse-dimensions s)]
     (->> (str/split-lines s)
          (map (partial widen width))
@@ -82,7 +82,7 @@
             component))
         components))
 
-(defn wire-coords [components grid]
+(defn- wire-coords [components grid]
   (let [coords      (for [row (range (count grid))
                           col (range (count (first grid)))]
                       [row col])
