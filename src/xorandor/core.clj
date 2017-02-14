@@ -122,14 +122,14 @@
         branch? (comp seq :dependencies)
         children #(map components-as-map (:dependencies %))]
     (map (fn [component]
-           (let [toggle-dependencies (->> (tree-seq branch? children component)
-                                          (filter :toggle?)
-                                          (map :name)
-                                          (sort)
-                                          (distinct))]
-             (if (and (not (:toggle? component)))
-               (assoc component :toggle-dependencies toggle-dependencies)
-               component)))
+           (if (:toggle? component)
+             component
+             (let [toggle-dependencies (->> (tree-seq branch? children component)
+                                            (filter :toggle?)
+                                            (map :name)
+                                            (sort)
+                                            (distinct))]
+               (assoc component :toggle-dependencies toggle-dependencies))))
          components)))
 
 (defn dissoc-unnecessary-props [components]
