@@ -79,7 +79,13 @@
 (defn- output-coord-belongs-to [components coord]
   (some (fn [component]
           (when ((set (:output-coords component)) coord)
-            component))
+            (let [output-pos (->> (map vector (:output-coords component) (range))
+                                  (filter (fn [[output-coord _]]
+                                            (= output-coord coord)))
+                                  (first)
+                                  (second))]
+              [(:name component) output-pos]))
+          )
         components))
 
 (defn- wire-coords [components grid]
@@ -110,8 +116,7 @@
     (map (fn [{input-coords :input-coords :as component}]
            (let [dependencies (->> input-coords
                                    (map #(find-input-dep % output? wire?))
-                                   (map (partial output-coord-belongs-to components))
-                                   (map :name))]
+                                   (map (partial output-coord-belongs-to components)))]
              (if (seq dependencies)
                (assoc component :dependencies dependencies)
                component)))
@@ -120,7 +125,7 @@
 (defn assoc-toggle-dependencies [components]
   (let [components-as-map (zipmap (map :name components) components)
         branch? (comp seq :dependencies)
-        children #(map components-as-map (:dependencies %))]
+        children #(map (comp components-as-map first) (:dependencies %))]
     (map (fn [component]
            (if (:toggle? component)
              component
@@ -149,3 +154,16 @@
         (assoc-component-dependencies grid)
         (assoc-toggle-dependencies)
         (dissoc-unnecessary-props))))
+
+(defn- eval-circuit* [circuit-map [component-name position] toggles]
+  (let [dependencies (:dependencies (component-name circuit-map))]
+    (if (seq dependencies)
+      (cons [component-name position] (map (fn [dependency]
+                                             (eval-circuit* circuit-map dependency toggles))
+                                           dependencies))
+      (list [component-name position]))))
+
+(defn eval-circuit [circuit toggles]
+  (let [led (first circuit)
+        circuit-map (zipmap (map :name circuit) circuit)]
+    (eval-circuit* circuit-map [(:name led) 0] toggles)))
