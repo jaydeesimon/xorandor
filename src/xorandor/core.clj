@@ -94,7 +94,7 @@
 (defn- find-input-dep [input-coord output? wire?]
   (let [neighbors (fn [coord]
                     (->> (map #(mapv + coord %) [[1 0] [0 -1] [0 1]])
-                         (filter (set wire?))))]
+                         (filter wire?)))]
     (loop [frontier (list input-coord)
            visited  #{input-coord}]
       (let [[coord & frontier] frontier]
@@ -104,9 +104,9 @@
                                                (remove visited)))
                            (into visited [coord])))))))
 
-(defn assoc-dependencies [components grid]
+(defn assoc-component-dependencies [components grid]
   (let [output? (set (mapcat :output-coords components))
-        wire? (wire-coords components grid)]
+        wire?   (set (wire-coords components grid))]
     (map (fn [{input-coords :input-coords :as component}]
            (let [dependencies (->> input-coords
                                    (map #(find-input-dep % output? wire?))
@@ -116,6 +116,25 @@
                (assoc component :dependencies dependencies)
                component)))
          components)))
+
+(defn assoc-toggle-dependencies [components]
+  (let [components-as-map (zipmap (map :name components) components)
+        branch? (comp seq :dependencies)
+        children #(map components-as-map (:dependencies %))]
+    (map (fn [component]
+           (let [toggle-dependencies (->> (tree-seq branch? children component)
+                                          (filter :toggle?)
+                                          (map :name)
+                                          (sort)
+                                          (distinct))]
+             (if (and (not (:toggle? component)))
+               (assoc component :toggle-dependencies toggle-dependencies)
+               component)))
+         components)))
+
+(defn dissoc-unnecessary-props [components]
+  (let [unused [:start :input-coords :output-coords :text :coords :toggle?]]
+    (map #(apply dissoc (concat [%] unused)) components)))
 
 (defn parse-circuit [s]
   (let [grid (parse-into-grid s)]
@@ -127,4 +146,6 @@
         (assoc-names)
         (assoc-pins [1 0] :input-coords grid)
         (assoc-pins [-1 0] :output-coords grid)
-        (assoc-dependencies grid))))
+        (assoc-component-dependencies grid)
+        (assoc-toggle-dependencies)
+        (dissoc-unnecessary-props))))
