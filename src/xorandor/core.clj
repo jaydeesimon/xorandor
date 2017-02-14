@@ -1,6 +1,7 @@
 (ns xorandor.core
   (:require [xorandor.util :as util]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.set :refer [intersection]]))
 
 (defn take-until
   [pred coll]
@@ -90,14 +91,39 @@
             component))
         components))
 
-(defn- wire-coords [components grid])
+(defn wire-coords [components grid]
+  (let [coords      (for [row (range (count grid))
+                          col (range (count (first grid)))]
+                      [row col])
+        gate-coords (mapcat :coords components)]
+    (->> (remove (set gate-coords) coords)
+         (filter (fn [coord]
+                   (#{\| \- \+} (get-in grid coord)))))))
+
+(defn- find-input-dep [input-coord output? wire?]
+  (let [neighbors (fn [coord]
+                    (->> (map #(mapv + coord %) [[1 0] [0 -1] [0 1]])
+                         (filter (set wire?))))]
+    (loop [frontier (list input-coord)
+           visited  #{input-coord}]
+      (let [[coord & frontier] frontier]
+        (cond (nil? coord) nil
+              (output? coord) coord
+              :else (recur (into frontier (->> (neighbors coord)
+                                               (remove visited)))
+                           (into visited [coord])))))))
 
 (defn assoc-dependencies [components grid]
-  (let [output-coord? (set (mapcat :output-coords components))
-        wires
-        branch? (fn [coord])]
+  (let [output? (set (mapcat :output-coords components))
+        wire? (wire-coords components grid)]
     (map (fn [{input-coords :input-coords :as component}]
-           (take-until output-coord? (tree-seq)))
+           (let [dependencies (->> input-coords
+                                   (map #(find-input-dep % output? wire?))
+                                   (map (partial output-coord-belongs-to components))
+                                   (map :name))]
+             (if (seq dependencies)
+               (assoc component :dependencies dependencies)
+               component)))
          components)))
 
 (defn parse-components [s]
@@ -110,4 +136,4 @@
         (assoc-names)
         (assoc-pins [1 0] :input-coords grid)
         (assoc-pins [-1 0] :output-coords grid)
-        #_(assoc-dependencies grid))))
+        (assoc-dependencies grid))))
