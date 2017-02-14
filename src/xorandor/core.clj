@@ -3,17 +3,8 @@
             [clojure.string :as str]
             [clojure.set :refer [intersection]]))
 
-(defn take-until
-  [pred coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (if (pred (first s))
-        (cons (first s) nil)
-        (cons (first s) (take-until pred (rest s)))))))
-
 (defn parse-dimensions [s]
-  (let [first-line (str/split (first (str/split-lines s)) #" ")]
-    [(read-string (first first-line)) (read-string (second first-line))]))
+  (mapv read-string (take 2 (re-seq #"\S+" s))))
 
 (defn widen [width s]
   (let [fmt (str "%1$-" width "s")]
@@ -126,7 +117,7 @@
                component)))
          components)))
 
-(defn parse-components [s]
+(defn parse-circuit [s]
   (let [grid (parse-into-grid s)]
     (-> (initialize-components grid)
         (assoc-order)
