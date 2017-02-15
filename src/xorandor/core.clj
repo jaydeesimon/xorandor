@@ -1,7 +1,18 @@
 (ns xorandor.core
   (:require [xorandor.util :as util]
-            [clojure.string :as str]
-            [clojure.set :refer [intersection]]))
+            [clojure.string :as str]))
+
+(defn- true-false-permutations [n]
+  (let [symbols (repeatedly n gensym)
+        args (vec (interleave symbols (cycle [[true false]])))
+        body (vec symbols)]
+    (eval (list 'for args body))))
+
+(defn- arrange-toggle-permutations [n]
+  (let [grouped (group-by #(count (filter true? %)) (true-false-permutations n))]
+    (mapcat (fn [order]
+              (get grouped order))
+            (sort (keys grouped)))))
 
 (defn- parse-dimensions [s]
   (mapv read-string (take 2 (re-seq #"\S+" s))))
@@ -84,8 +95,7 @@
                                             (= output-coord coord)))
                                   (first)
                                   (second))]
-              [(:name component) output-pos]))
-          )
+              [(:name component) output-pos])))
         components))
 
 (defn- wire-coords [components grid]
@@ -138,7 +148,7 @@
          components)))
 
 (defn dissoc-unnecessary-props [components]
-  (let [unused [:start :input-coords :output-coords :text :coords :toggle?]]
+  (let [unused [:start :input-coords :output-coords :text :coords]]
     (map #(apply dissoc (concat [%] unused)) components)))
 
 (defmulti component-fn :type)
@@ -218,31 +228,54 @@
         (assoc-toggle-dependencies)
         (dissoc-unnecessary-props))))
 
-#_(defn- eval-circuit* [circuit-map [component-name position] toggles]
-  (let [dependencies (:dependencies (component-name circuit-map))]
-    (if (seq dependencies)
-      (cons [component-name position] (map (fn [dependency]
-                                             (eval-circuit* circuit-map dependency toggles))
-                                           dependencies))
-      (list [component-name position]))))
+(defn component-fn* [component toggle memo-map]
+  (if-let [memoized-fn (get @memo-map (:name component))]
+    memoized-fn
+    (let [f (memoize (if (:toggle? component)
+                       ((component-fn component) toggle)
+                       (component-fn component)))]
+      (-> (swap! memo-map (fn [memo-map]
+                            (assoc memo-map (:name component) f)))
+          (get (:name component))))))
 
-(defn component-fn* [component toggle]
-  (if (= toggle :no-toggle-val)
-    (component-fn component)
-    ((component-fn component) toggle)))
-
-(defn- eval-circuit* [circuit-map [component-name position] toggles]
+(defn- eval-circuit* [circuit-map [component-name position] toggles memo-map]
   (let [component (component-name circuit-map)
         dependencies (:dependencies component)
-        toggle (get toggles component-name :no-toggle-val)
-        f (component-fn* component toggle)]
+        toggle (get toggles component-name false)
+        f (component-fn* component toggle memo-map)
+        position-fn (if (zero? position) first second)]
     (if (seq dependencies)
-      (apply f (map (fn [[component-name position]]
-                    (eval-circuit* circuit-map [component-name position] toggles))
-                  dependencies))
-      (f))))
+      (position-fn (apply f (map (fn [[component-name position]]
+                                   (eval-circuit* circuit-map [component-name position] toggles memo-map))
+                                 dependencies)))
+      (position-fn (f)))))
 
 (defn eval-circuit [circuit toggles]
   (let [led (first circuit)
         circuit-map (zipmap (map :name circuit) circuit)]
-    (eval-circuit* circuit-map [(:name led) 0] toggles)))
+    (eval-circuit* circuit-map [(:name led) 0] toggles (atom {}))))
+
+(defn led-toggles [circuit]
+  (let [circuit-toggles (map :name (filter :toggle? circuit))]
+    (->> (arrange-toggle-permutations (count circuit-toggles))
+         (map #(zipmap circuit-toggles %))
+         (some (fn [toggles]
+                 (when (eval-circuit circuit toggles)
+                   toggles))))))
+
+(defn minimum-toggles [circuit]
+  (->> (led-toggles circuit)
+       (remove (fn [[_ toggle?]] (not toggle?)))
+       (map first)))
+
+(defn arrange-toggle-order [toggle-names]
+  (let [[inputs switches] (partition-by (comp first name) (sort toggle-names))]
+    (concat switches inputs)))
+
+(defn -main [& _]
+  (let [toggles (-> (slurp *in*)
+                    (parse-circuit)
+                    (minimum-toggles)
+                    (arrange-toggle-order))]
+    (doseq [t toggles]
+      (println (name t)))))
