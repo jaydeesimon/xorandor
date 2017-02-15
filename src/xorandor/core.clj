@@ -218,13 +218,29 @@
         (assoc-toggle-dependencies)
         (dissoc-unnecessary-props))))
 
-(defn- eval-circuit* [circuit-map [component-name position] toggles]
+#_(defn- eval-circuit* [circuit-map [component-name position] toggles]
   (let [dependencies (:dependencies (component-name circuit-map))]
     (if (seq dependencies)
       (cons [component-name position] (map (fn [dependency]
                                              (eval-circuit* circuit-map dependency toggles))
                                            dependencies))
       (list [component-name position]))))
+
+(defn component-fn* [component toggle]
+  (if (= toggle :no-toggle-val)
+    (component-fn component)
+    ((component-fn component) toggle)))
+
+(defn- eval-circuit* [circuit-map [component-name position] toggles]
+  (let [component (component-name circuit-map)
+        dependencies (:dependencies component)
+        toggle (get toggles component-name :no-toggle-val)
+        f (component-fn* component toggle)]
+    (if (seq dependencies)
+      (apply f (map (fn [[component-name position]]
+                    (eval-circuit* circuit-map [component-name position] toggles))
+                  dependencies))
+      (f))))
 
 (defn eval-circuit [circuit toggles]
   (let [led (first circuit)
