@@ -239,7 +239,7 @@
         circuit-map (zipmap (map :name circuit) circuit)]
     (eval-circuit* circuit-map [(:name led) 0] toggles (atom {}))))
 
-(defn minimum-toggles [circuit]
+(defn minimum-toggles* [circuit]
   (let [circuit-toggles (map :name (filter :toggle? circuit))]
     (->> (arrange-toggle-permutations (count circuit-toggles))
          (map #(zipmap circuit-toggles %))
@@ -253,10 +253,13 @@
   (let [[inputs switches] (partition-by (comp first name) (sort toggle-names))]
     (concat switches inputs)))
 
-(defn -main [& _]
-  (let [toggles (-> (slurp *in*)
+(defn print-minimum-toggles [s]
+  (let [toggles (-> s
                     (parse-circuit)
-                    (minimum-toggles)
+                    (minimum-toggles*)
                     (arrange-toggle-order))]
     (doseq [t toggles]
       (println (name t)))))
+
+(defn -main [& _]
+  (print-minimum-toggles (slurp *in*)))
