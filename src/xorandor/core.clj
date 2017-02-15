@@ -132,21 +132,6 @@
                component)))
          components)))
 
-(defn assoc-toggle-dependencies [components]
-  (let [components-as-map (zipmap (map :name components) components)
-        branch? (comp seq :dependencies)
-        children #(map (comp components-as-map first) (:dependencies %))]
-    (map (fn [component]
-           (if (:toggle? component)
-             component
-             (let [toggle-dependencies (->> (tree-seq branch? children component)
-                                            (filter :toggle?)
-                                            (map :name)
-                                            (sort)
-                                            (distinct))]
-               (assoc component :toggle-dependencies toggle-dependencies))))
-         components)))
-
 (defn dissoc-unnecessary-props [components]
   (let [unused [:start :input-coords :output-coords :text :coords]]
     (map #(apply dissoc (concat [%] unused)) components)))
@@ -225,7 +210,6 @@
         (assoc-pins [1 0] :input-coords grid)
         (assoc-pins [-1 0] :output-coords grid)
         (assoc-component-dependencies grid)
-        (assoc-toggle-dependencies)
         (dissoc-unnecessary-props))))
 
 (defn component-fn* [component toggle memo-map]
@@ -255,18 +239,15 @@
         circuit-map (zipmap (map :name circuit) circuit)]
     (eval-circuit* circuit-map [(:name led) 0] toggles (atom {}))))
 
-(defn led-toggles [circuit]
+(defn minimum-toggles [circuit]
   (let [circuit-toggles (map :name (filter :toggle? circuit))]
     (->> (arrange-toggle-permutations (count circuit-toggles))
          (map #(zipmap circuit-toggles %))
          (some (fn [toggles]
                  (when (eval-circuit circuit toggles)
-                   toggles))))))
-
-(defn minimum-toggles [circuit]
-  (->> (led-toggles circuit)
-       (remove (fn [[_ toggle?]] (not toggle?)))
-       (map first)))
+                   toggles)))
+         (remove (fn [[_ toggle?]] (not toggle?)))
+         (map first))))
 
 (defn arrange-toggle-order [toggle-names]
   (let [[inputs switches] (partition-by (comp first name) (sort toggle-names))]
