@@ -9,10 +9,10 @@
     (eval (list 'for args body))))
 
 (defn- arrange-toggle-permutations [n]
-  (let [grouped (group-by #(count (filter true? %)) (true-false-permutations n))]
-    (mapcat (fn [order]
-              (get grouped order))
-            (sort (keys grouped)))))
+  (let [grouped-by-num-toggles (group-by #(count (filter true? %)) (true-false-permutations n))]
+    (mapcat (fn [num-toggles]
+              (get grouped-by-num-toggles num-toggles))
+            (sort (keys grouped-by-num-toggles)))))
 
 (defn- parse-dimensions [s]
   (mapv read-string (take 2 (re-seq #"\S+" s))))
