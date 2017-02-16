@@ -227,7 +227,7 @@
         dependencies (:dependencies component)
         toggle (get toggles component-name false)
         f (component-fn* component toggle memo-map)
-        position-fn (if (zero? position) first second)]
+        position-fn #(nth % position)]
     (if (seq dependencies)
       (position-fn (apply f (map (fn [[component-name position]]
                                    (eval-circuit* circuit-map [component-name position] toggles memo-map))
